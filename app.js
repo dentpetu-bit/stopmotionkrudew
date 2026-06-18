@@ -1,4 +1,4 @@
-/* Stop Motion Studio Classroom By Kru Dew - V8
+/* Stop Motion Studio Classroom By Kru Dew - V9
    แก้ระบบวาดให้ใช้งานได้จริงบน iPad / Tablet / PC
    ใช้ Pointer Events + Canvas DPR Scaling + touch-action:none
 */
@@ -498,13 +498,36 @@ async function openProject(projectId) {
   resizeCanvasKeepDrawing();
 }
 
+function getProjectCover(p) {
+  return p.cover_url || 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="400" height="240"><rect width="100%" height="100%" fill="#ede9fe"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-size="24" fill="#6d28d9">No Frame</text></svg>`);
+}
+
 function projectCard(p) {
-  const cover = p.cover_url || 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="400" height="240"><rect width="100%" height="100%" fill="#ede9fe"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-size="24" fill="#6d28d9">No Frame</text></svg>`);
+  const cover = getProjectCover(p);
   const s = p.students || {};
   return `<div class="work-card">
     <img src="${cover}" alt="cover" loading="lazy">
     <div><h3>${p.project_name}</h3><p>${s.student_name || '-'} | ห้อง ${s.room || '-'}</p><p>${p.frame_count || 0} เฟรม</p>
     <button class="primary" data-project="${p.id}">เปิดผลงาน</button></div>
+  </div>`;
+}
+
+// การ์ดหน้า “ดูผลงานของฉัน”: ดูได้ทันที แต่แก้ไขต้องขอรหัสครู
+function myProjectCard(p) {
+  const cover = getProjectCover(p);
+  const s = p.students || {};
+  const created = p.created_at ? new Date(p.created_at).toLocaleDateString('th-TH') : '-';
+  return `<div class="work-card my-work-card">
+    <img src="${cover}" alt="cover" loading="lazy">
+    <div>
+      <h3>${p.project_name}</h3>
+      <p>${s.student_name || '-'} | ห้อง ${s.room || '-'}</p>
+      <p>${p.frame_count || 0} เฟรม | ${created}</p>
+      <div class="card-actions">
+        <button class="primary" data-view-project="${p.id}">▶️ ดูผลงาน</button>
+        <button class="secondary" data-edit-project="${p.id}">✏️ แก้ไข</button>
+      </div>
+    </div>
   </div>`;
 }
 
@@ -518,8 +541,38 @@ async function loadGallery(target = 'gallery', filter = null) {
   $(target).querySelectorAll('[data-project]').forEach(btn => btn.addEventListener('click', () => openProject(btn.dataset.project)));
 }
 
+async function loadMyWorks() {
+  const code = $('myStudentCode').value.trim();
+  if (!code) return toast('กรอกรหัสนักเรียนก่อนครับ', 'warn');
+  const { data, error } = await sb.from('projects').select('*, students(*)').order('created_at', { ascending: false }).limit(300);
+  if (error) return toast('โหลดผลงานของฉันไม่ได้: ' + error.message, 'err');
+  const list = (data || []).filter(p => p.students?.student_code === code);
+  $('myWorks').innerHTML = list.length ? list.map(myProjectCard).join('') : '<div class="empty">ไม่พบผลงานของรหัสนี้</div>';
+  $('myWorks').querySelectorAll('[data-view-project]').forEach(btn => btn.addEventListener('click', () => viewProjectOnly(btn.dataset.viewProject)));
+  $('myWorks').querySelectorAll('[data-edit-project]').forEach(btn => btn.addEventListener('click', () => requestTeacherPasswordAndEdit(btn.dataset.editProject)));
+}
+
+async function viewProjectOnly(projectId) {
+  const { data, error } = await sb.from('frames').select('*').eq('project_id', projectId).order('frame_number', { ascending: true });
+  if (error) return toast('ดูผลงานไม่ได้: ' + error.message, 'err');
+  if (!data || !data.length) return toast('ผลงานนี้ยังไม่มีเฟรม', 'warn');
+  frames = data;
+  previewIndex = 0;
+  $('previewImage').src = frames[0].image_url;
+  $('previewDialog').showModal();
+}
+
+async function requestTeacherPasswordAndEdit(projectId) {
+  const pass = prompt('ต้องขอรหัสจากครูผู้สอนก่อนแก้ไขผลงาน');
+  if (pass === null) return;
+  if (pass !== '1234') return toast('รหัสครูไม่ถูกต้อง ไม่สามารถแก้ไขได้', 'err');
+  await openProject(projectId);
+  toast('ปลดล็อกการแก้ไขแล้ว', 'ok');
+}
+
 $('refreshGalleryBtn').addEventListener('click', () => loadGallery('gallery'));
-$('loadMyWorksBtn').addEventListener('click', () => loadGallery('myWorks', $('myStudentCode').value.trim()));
+$('loadMyWorksBtn').addEventListener('click', loadMyWorks);
+$('myStudentCode')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') loadMyWorks(); });
 
 $('previewBtn').addEventListener('click', () => {
   if (!frames.length) return toast('ยังไม่มีเฟรมให้เล่น', 'warn');

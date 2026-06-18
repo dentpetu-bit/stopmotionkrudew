@@ -25,3 +25,14 @@ input,textarea,select{width:100%;border:1px solid var(--line);border-radius:14px
 .danger{background:#ef4444;color:#fff;}
 #closePreviewBtnBottom{min-width:160px;}
 @media(max-width:900px){#previewDialog .actions{position:sticky;bottom:0;background:#fff;padding:10px 0;flex-wrap:wrap}#previewImage{max-height:58vh}.close-preview-btn{font-size:16px}}
+
+/* V9: ปุ่มดูผลงาน/แก้ไข ในหน้า ดูผลงานของฉัน */
+.card-actions{
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+  margin-top:10px;
+}
+.my-work-card .card-actions button{
+  min-width:120px;
+}
