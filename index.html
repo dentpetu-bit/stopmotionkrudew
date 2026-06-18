@@ -91,8 +91,10 @@
         <label class="tool-label">ขนาด <input id="brushSize" type="range" min="2" max="40" value="8" /></label>
         <button id="undoBtn">↩️ Undo</button>
         <button id="clearBtn">🗑️ ล้างภาพ</button>
-        <button id="cameraBtn">📷 ถ่าย/นำภาพเข้า</button>
-        <input id="cameraInput" type="file" accept="image/*" capture="environment" class="hidden" />
+        <button id="cameraBtn">📷 ถ่ายภาพ</button>
+        <button id="galleryImageBtn">🖼️ เลือกภาพจากเครื่อง</button>
+        <input id="cameraInput" type="file" accept="image/*" capture="environment" class="visually-hidden-input" />
+        <input id="galleryImageInput" type="file" accept="image/*" class="visually-hidden-input" />
         <button id="newFrameBtn">➕ เฟรมใหม่</button>
         <button id="duplicateFrameBtn">📋 คัดลอกเฟรมล่าสุด</button>
         <button class="primary" id="saveFrameBtn">📸 บันทึกเฟรม</button>

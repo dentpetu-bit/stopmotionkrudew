@@ -1,4 +1,4 @@
-/* Stop Motion Studio Classroom By Kru Dew - V4
+/* Stop Motion Studio Classroom By Kru Dew - V5
    แก้ระบบวาดให้ใช้งานได้จริงบน iPad / Tablet / PC
    ใช้ Pointer Events + Canvas DPR Scaling + touch-action:none
 */
@@ -179,16 +179,29 @@ $('clearBtn').addEventListener('click', () => {
 });
 
 
-// V4: ถ่ายภาพ/นำภาพจากเครื่องเข้า Canvas แล้ววาดทับได้ทันที
-$('cameraBtn')?.addEventListener('click', () => {
+// V5: แยกปุ่มถ่ายภาพและนำภาพจากคลัง เพื่อให้ iPad / Tablet เลือกจาก Photos ได้จริง
+function ensureProjectBeforeImage() {
   if (!currentProject || !currentStudent) {
     toast('กรุณาสร้างหรือเปิดโปรเจกต์ก่อนนำภาพเข้า', 'warn');
-    return;
+    return false;
   }
+  return true;
+}
+
+$('cameraBtn')?.addEventListener('click', () => {
+  if (!ensureProjectBeforeImage()) return;
   $('cameraInput').click();
 });
 
-$('cameraInput')?.addEventListener('change', async (e) => {
+$('galleryImageBtn')?.addEventListener('click', () => {
+  if (!ensureProjectBeforeImage()) return;
+  $('galleryImageInput').click();
+});
+
+$('cameraInput')?.addEventListener('change', handleImageInputChange);
+$('galleryImageInput')?.addEventListener('change', handleImageInputChange);
+
+async function handleImageInputChange(e) {
   const file = e.target.files && e.target.files[0];
   if (!file) return;
   if (!file.type.startsWith('image/')) {
@@ -202,40 +215,50 @@ $('cameraInput')?.addEventListener('change', async (e) => {
     toast('นำภาพเข้า Canvas แล้ว สามารถขีดเขียนต่อได้เลย');
   } catch (err) {
     console.error(err);
-    toast('นำภาพเข้าไม่สำเร็จ: ' + err.message, 'err');
+    toast('นำภาพเข้าไม่สำเร็จ: ' + (err.message || err), 'err');
   } finally {
     e.target.value = '';
   }
-});
+}
 
 async function loadLocalFileToCanvas(file) {
-  const url = URL.createObjectURL(file);
-  try {
-    await new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => {
-        saveUndo();
-        const w = drawCanvas.clientWidth;
-        const h = drawCanvas.clientHeight;
-        ctx.clearRect(0, 0, w, h);
-        ctx.fillStyle = '#fff';
-        ctx.fillRect(0, 0, w, h);
+  // ใช้ FileReader แทน ObjectURL เพื่อให้ iPad/Safari อ่านรูปจาก Photos ได้เสถียรกว่า
+  const dataUrl = await fileToDataURL(file);
+  await drawImageSourceToCanvas(dataUrl);
+}
 
-        // วางภาพแบบ contain ให้อยู่กลาง Canvas ไม่บิดสัดส่วน
-        const scale = Math.min(w / img.width, h / img.height);
-        const dw = img.width * scale;
-        const dh = img.height * scale;
-        const dx = (w - dw) / 2;
-        const dy = (h - dh) / 2;
-        ctx.drawImage(img, dx, dy, dw, dh);
-        resolve();
-      };
-      img.onerror = () => reject(new Error('อ่านไฟล์ภาพไม่ได้'));
-      img.src = url;
-    });
-  } finally {
-    URL.revokeObjectURL(url);
-  }
+function fileToDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('อ่านไฟล์ภาพจากอุปกรณ์ไม่ได้'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function drawImageSourceToCanvas(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      saveUndo();
+      const w = drawCanvas.clientWidth;
+      const h = drawCanvas.clientHeight;
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, w, h);
+
+      // วางภาพแบบ contain ให้อยู่กลาง Canvas ไม่บิดสัดส่วน
+      const scale = Math.min(w / img.width, h / img.height);
+      const dw = img.width * scale;
+      const dh = img.height * scale;
+      const dx = (w - dw) / 2;
+      const dy = (h - dh) / 2;
+      ctx.drawImage(img, dx, dy, dw, dh);
+      resolve();
+    };
+    img.onerror = () => reject(new Error('อ่านไฟล์ภาพไม่ได้'));
+    img.src = src;
+  });
 }
 
 $('newFrameBtn').addEventListener('click', () => {
@@ -516,43 +539,106 @@ function playPreview() {
 function pausePreview() { if (previewTimer) clearInterval(previewTimer); previewTimer = null; }
 function stopPreview() { pausePreview(); previewIndex = 0; if (frames[0]) $('previewImage').src = frames[0].image_url; }
 
-$('exportGifBtn').addEventListener('click', async () => {
+
+$('exportGifBtn').addEventListener('click', exportGifV5);
+
+async function exportGifV5() {
   if (!frames.length) return toast('ยังไม่มีเฟรมให้ Export', 'warn');
+  if (typeof GIF === 'undefined') {
+    toast('โหลดตัวสร้าง GIF ไม่สำเร็จ กรุณาเชื่อมอินเทอร์เน็ตแล้วรีเฟรชหน้าเว็บ', 'err');
+    return;
+  }
   try {
-    toast('กำลังสร้าง GIF อาจใช้เวลาสักครู่...', 'warn');
-    const gif = new GIF({ workers: 2, quality: 10, width: drawCanvas.clientWidth, height: drawCanvas.clientHeight });
-    const delay = 1000 / Number($('fpsSelect').value);
-    for (const f of frames) {
-      const img = await loadImageElement(f.image_url);
+    toast('กำลังเตรียมเฟรมสำหรับ GIF...', 'warn');
+
+    const width = Math.max(320, Math.round(drawCanvas.clientWidth || 800));
+    const height = Math.max(240, Math.round(drawCanvas.clientHeight || 600));
+    const delay = Math.round(1000 / Number($('fpsSelect').value || 5));
+
+    const gif = new GIF({
+      workers: 2,
+      quality: 10,
+      width,
+      height,
+      // สำคัญ: กำหนด workerScript ไม่อย่างนั้น GitHub Pages / iPad มัก Export ไม่ได้
+      workerScript: 'https://cdn.jsdelivr.net/npm/gif.js.optimized/dist/gif.worker.js'
+    });
+
+    for (let i = 0; i < frames.length; i++) {
+      toast(`กำลังเตรียมเฟรม ${i + 1}/${frames.length}...`, 'warn');
+      const img = await loadImageElementSafe(frames[i].image_url);
       const temp = document.createElement('canvas');
-      temp.width = drawCanvas.clientWidth;
-      temp.height = drawCanvas.clientHeight;
-      const tctx = temp.getContext('2d');
+      temp.width = width;
+      temp.height = height;
+      const tctx = temp.getContext('2d', { willReadFrequently: true });
       tctx.fillStyle = '#fff';
-      tctx.fillRect(0, 0, temp.width, temp.height);
-      tctx.drawImage(img, 0, 0, temp.width, temp.height);
-      gif.addFrame(temp, { delay });
+      tctx.fillRect(0, 0, width, height);
+      tctx.drawImage(img, 0, 0, width, height);
+      gif.addFrame(temp, { delay, copy: true });
     }
+
     gif.on('finished', blob => {
+      const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = `${currentProject?.project_name || 'stop-motion'}.gif`;
+      a.href = url;
+      a.download = sanitizeFileName(`${currentProject?.project_name || 'stop-motion'}.gif`);
+      document.body.appendChild(a);
       a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
       toast('ดาวน์โหลด GIF สำเร็จ');
     });
+
+    gif.on('progress', p => {
+      const percent = Math.round(p * 100);
+      toast(`กำลังสร้าง GIF ${percent}%`, 'warn');
+    });
+
     gif.render();
   } catch (err) {
-    toast('Export ไม่สำเร็จ: ' + err.message, 'err');
+    console.error(err);
+    toast('Export GIF ไม่สำเร็จ: ' + (err.message || err), 'err');
   }
-});
+}
+
+function sanitizeFileName(name) {
+  return String(name).replace(/[\\/:*?"<>|]/g, '-');
+}
 
 function loadImageElement(url) {
+  return loadImageElementSafe(url);
+}
+
+async function loadImageElementSafe(url) {
+  // แปลงรูปจาก Supabase เป็น dataURL ก่อน เพื่อลดปัญหา CORS/Canvas tainted ตอน Export GIF
+  try {
+    const res = await fetch(url, { mode: 'cors', cache: 'no-store' });
+    if (!res.ok) throw new Error('โหลดภาพไม่ได้');
+    const blob = await res.blob();
+    const dataUrl = await blobToDataURL(blob);
+    return await loadImageFromSrc(dataUrl);
+  } catch (err) {
+    // fallback: โหลดตรงแบบ crossOrigin
+    return await loadImageFromSrc(url, true);
+  }
+}
+
+function blobToDataURL(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('แปลงรูปเป็น dataURL ไม่สำเร็จ'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+function loadImageFromSrc(src, crossOrigin = false) {
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.crossOrigin = 'anonymous';
+    if (crossOrigin) img.crossOrigin = 'anonymous';
     img.onload = () => resolve(img);
-    img.onerror = reject;
-    img.src = url;
+    img.onerror = () => reject(new Error('โหลดรูปสำหรับ GIF ไม่สำเร็จ'));
+    img.src = src;
   });
 }
 
