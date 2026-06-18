@@ -1,4 +1,4 @@
-/* Stop Motion Studio Classroom By Kru Dew - V6
+/* Stop Motion Studio Classroom By Kru Dew - V7
    แก้ระบบวาดให้ใช้งานได้จริงบน iPad / Tablet / PC
    ใช้ Pointer Events + Canvas DPR Scaling + touch-action:none
 */
@@ -440,7 +440,7 @@ async function loadImageToCanvas(url) {
       ctx.clearRect(0, 0, drawCanvas.clientWidth, drawCanvas.clientHeight);
       ctx.fillStyle = '#fff';
       ctx.fillRect(0, 0, drawCanvas.clientWidth, drawCanvas.clientHeight);
-      ctx.drawImage(img, 0, 0, drawCanvas.clientWidth, drawCanvas.clientHeight);
+      drawImageContain(ctx, img, 0, 0, drawCanvas.clientWidth, drawCanvas.clientHeight);
       resolve();
     };
     img.onerror = reject;
@@ -457,7 +457,7 @@ function drawOnionSkin() {
   img.onload = () => {
     onionCtx.clearRect(0, 0, onionCanvas.clientWidth, onionCanvas.clientHeight);
     onionCtx.globalAlpha = 0.28;
-    onionCtx.drawImage(img, 0, 0, onionCanvas.clientWidth, onionCanvas.clientHeight);
+    drawImageContain(onionCtx, img, 0, 0, onionCanvas.clientWidth, onionCanvas.clientHeight);
     onionCtx.globalAlpha = 1;
   };
   img.src = last.image_url;
@@ -540,9 +540,9 @@ function pausePreview() { if (previewTimer) clearInterval(previewTimer); preview
 function stopPreview() { pausePreview(); previewIndex = 0; if (frames[0]) $('previewImage').src = frames[0].image_url; }
 
 
-$('exportGifBtn').addEventListener('click', exportGifV5);
+$('exportGifBtn').addEventListener('click', exportGifV7);
 
-async function exportGifV5() {
+async function exportGifV7() {
   if (!frames.length) return toast('ยังไม่มีเฟรมให้ Export', 'warn');
   if (typeof GIF === 'undefined') {
     toast('โหลดตัวสร้าง GIF ไม่สำเร็จ กรุณาเชื่อมอินเทอร์เน็ตแล้วรีเฟรชหน้าเว็บ', 'err');
@@ -551,8 +551,15 @@ async function exportGifV5() {
   try {
     toast('กำลังเตรียมเฟรมสำหรับ GIF...', 'warn');
 
-    const width = Math.max(320, Math.round(drawCanvas.clientWidth || 800));
-    const height = Math.max(240, Math.round(drawCanvas.clientHeight || 600));
+    // V7: กำหนดขนาด GIF จากสัดส่วนของเฟรมจริง/Preview ไม่ใช้การยืดเต็มกล่อง
+    // ทำให้ GIF ที่ดาวน์โหลดออกมาไม่บิด ไม่ยืด และมีสัดส่วนเหมือนที่เห็นใน Preview
+    const firstImg = await loadImageElementSafe(frames[0].image_url);
+    const naturalW = firstImg.naturalWidth || firstImg.width || 1280;
+    const naturalH = firstImg.naturalHeight || firstImg.height || 720;
+    const maxExportSide = 1280; // กันไฟล์ใหญ่เกินไป แต่ยังคมพอสำหรับงานส่งครู
+    const exportScale = Math.min(1, maxExportSide / Math.max(naturalW, naturalH));
+    const width = Math.max(320, Math.round(naturalW * exportScale));
+    const height = Math.max(240, Math.round(naturalH * exportScale));
     const delay = Math.round(1000 / Number($('fpsSelect').value || 5));
 
     const gif = new GIF({
@@ -566,14 +573,14 @@ async function exportGifV5() {
 
     for (let i = 0; i < frames.length; i++) {
       toast(`กำลังเตรียมเฟรม ${i + 1}/${frames.length}...`, 'warn');
-      const img = await loadImageElementSafe(frames[i].image_url);
+      const img = i === 0 ? firstImg : await loadImageElementSafe(frames[i].image_url);
       const temp = document.createElement('canvas');
       temp.width = width;
       temp.height = height;
       const tctx = temp.getContext('2d', { willReadFrequently: true });
       tctx.fillStyle = '#fff';
       tctx.fillRect(0, 0, width, height);
-      tctx.drawImage(img, 0, 0, width, height);
+      drawImageContain(tctx, img, 0, 0, width, height);
       gif.addFrame(temp, { delay, copy: true });
     }
 
