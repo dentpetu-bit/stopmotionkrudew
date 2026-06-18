@@ -1,4 +1,4 @@
-/* Stop Motion Studio Classroom By Kru Dew - V9
+/* Stop Motion Studio Classroom By Kru Dew - V10
    แก้ระบบวาดให้ใช้งานได้จริงบน iPad / Tablet / PC
    ใช้ Pointer Events + Canvas DPR Scaling + touch-action:none
 */
@@ -31,6 +31,12 @@ function showView(id) {
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   $(id).classList.add('active');
   if (id === 'studioView') setTimeout(resizeCanvasKeepDrawing, 120);
+
+  // V10: เมื่อเปิดหน้า 'ดูผลงานของฉัน' ให้แสดงผลงานขึ้นมาทันที
+  // ไม่ต้องกดค้นหาก่อน นักเรียนจะเห็นการ์ดผลงานพร้อมปุ่มดู/แก้ไขเลย
+  if (id === 'myWorkView') {
+    setTimeout(() => loadMyWorks(true), 80);
+  }
 }
 
 document.querySelectorAll('[data-open]').forEach(btn => btn.addEventListener('click', () => showView(btn.dataset.open)));
@@ -541,13 +547,21 @@ async function loadGallery(target = 'gallery', filter = null) {
   $(target).querySelectorAll('[data-project]').forEach(btn => btn.addEventListener('click', () => openProject(btn.dataset.project)));
 }
 
-async function loadMyWorks() {
+async function loadMyWorks(auto = false) {
   const code = $('myStudentCode').value.trim();
-  if (!code) return toast('กรอกรหัสนักเรียนก่อนครับ', 'warn');
   const { data, error } = await sb.from('projects').select('*, students(*)').order('created_at', { ascending: false }).limit(300);
   if (error) return toast('โหลดผลงานของฉันไม่ได้: ' + error.message, 'err');
-  const list = (data || []).filter(p => p.students?.student_code === code);
-  $('myWorks').innerHTML = list.length ? list.map(myProjectCard).join('') : '<div class="empty">ไม่พบผลงานของรหัสนี้</div>';
+
+  // V10: ถ้าไม่กรอกรหัส ให้แสดงผลงานทั้งหมดขึ้นมาทันที
+  // ถ้ากรอกรหัส จะกรองเฉพาะรหัสนักเรียนคนนั้น
+  let list = data || [];
+  if (code) list = list.filter(p => p.students?.student_code === code);
+
+  const title = code ? `ผลงานของรหัส ${code}` : 'ผลงานล่าสุดทั้งหมด';
+  $('myWorks').innerHTML = list.length
+    ? `<div class="myworks-note">${title} • กด “ดูผลงาน” เพื่อเล่น Preview หรือ “แก้ไข” โดยต้องใช้รหัสครู</div>` + list.map(myProjectCard).join('')
+    : '<div class="empty">ยังไม่พบผลงาน</div>';
+
   $('myWorks').querySelectorAll('[data-view-project]').forEach(btn => btn.addEventListener('click', () => viewProjectOnly(btn.dataset.viewProject)));
   $('myWorks').querySelectorAll('[data-edit-project]').forEach(btn => btn.addEventListener('click', () => requestTeacherPasswordAndEdit(btn.dataset.editProject)));
 }
@@ -735,9 +749,68 @@ async function loadAdmin() {
   renderAdmin(adminProjectsCache);
 }
 
+function adminProjectCard(p) {
+  const cover = getProjectCover(p);
+  const s = p.students || {};
+  const created = p.created_at ? new Date(p.created_at).toLocaleDateString('th-TH') : '-';
+  return `<div class="work-card admin-work-card">
+    <img src="${cover}" alt="cover" loading="lazy">
+    <div>
+      <h3>${p.project_name}</h3>
+      <p>${s.student_name || '-'} | ห้อง ${s.room || '-'} | รหัส ${s.student_code || '-'}</p>
+      <p>${p.frame_count || 0} เฟรม | ${created}</p>
+      <div class="card-actions">
+        <button class="primary" data-project="${p.id}">เปิดดู/แก้ไข</button>
+        <button class="danger" data-delete-project="${p.id}" data-project-name="${String(p.project_name || '').replace(/"/g, '&quot;')}">🗑️ ลบผลงาน</button>
+      </div>
+    </div>
+  </div>`;
+}
+
 function renderAdmin(list) {
-  $('adminList').innerHTML = list.length ? list.map(projectCard).join('') : '<div class="empty">ไม่มีข้อมูล</div>';
+  $('adminList').innerHTML = list.length ? list.map(adminProjectCard).join('') : '<div class="empty">ไม่มีข้อมูล</div>';
   $('adminList').querySelectorAll('[data-project]').forEach(btn => btn.addEventListener('click', () => openProject(btn.dataset.project)));
+  $('adminList').querySelectorAll('[data-delete-project]').forEach(btn => {
+    btn.addEventListener('click', () => adminDeleteProject(btn.dataset.deleteProject, btn.dataset.projectName || 'ผลงานนี้'));
+  });
+}
+
+async function adminDeleteProject(projectId, projectName) {
+  const ok = confirm(`ยืนยันลบผลงาน: ${projectName} ?\n\nเมื่อลบแล้ว ข้อมูลโปรเจกต์และเฟรมในฐานข้อมูลจะหายไป`);
+  if (!ok) return;
+
+  try {
+    toast('กำลังลบผลงาน...', 'warn');
+
+    // ลบไฟล์ภาพใน Storage ถ้าระบบอ่าน path ได้
+    const { data: frameRows } = await sb.from('frames').select('image_url').eq('project_id', projectId);
+    const paths = (frameRows || []).map(f => getStoragePathFromPublicUrl(f.image_url)).filter(Boolean);
+    if (paths.length) {
+      await sb.storage.from('stop-motion-frames').remove(paths);
+    }
+
+    // foreign key on delete cascade จะลบ frames ใน database ให้ด้วย
+    const { error } = await sb.from('projects').delete().eq('id', projectId);
+    if (error) throw error;
+
+    toast('ลบผลงานนักเรียนเรียบร้อยแล้ว');
+    await loadAdmin();
+    await loadGallery('gallery');
+  } catch (err) {
+    console.error(err);
+    toast('ลบผลงานไม่สำเร็จ: ' + (err.message || err), 'err');
+  }
+}
+
+function getStoragePathFromPublicUrl(url) {
+  try {
+    const marker = '/storage/v1/object/public/stop-motion-frames/';
+    const idx = String(url || '').indexOf(marker);
+    if (idx === -1) return '';
+    return decodeURIComponent(String(url).slice(idx + marker.length).split('?')[0]);
+  } catch {
+    return '';
+  }
 }
 
 $('adminSearch').addEventListener('input', () => {
@@ -745,6 +818,8 @@ $('adminSearch').addEventListener('input', () => {
   const list = adminProjectsCache.filter(p => `${p.project_name} ${p.students?.student_name} ${p.students?.room}`.toLowerCase().includes(q));
   renderAdmin(list);
 });
+
+$('adminRefreshBtn')?.addEventListener('click', loadAdmin);
 
 $('downloadCsvBtn').addEventListener('click', () => {
   const rows = [['project_name','student_name','room','frame_count','created_at']];

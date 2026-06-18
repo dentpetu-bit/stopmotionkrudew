@@ -12,7 +12,7 @@
     <button class="ghost" id="homeBtn">🏠 หน้าแรก</button>
     <div class="brand">
       <span class="logo">🎬</span>
-      <span>Stop Motion Studio Classroom <b>By Kru Dew</b></span>
+      <span>Stop Motion Studio Classroom <b>By Kru Dew</b> <em class="version-badge">V10</em></span>
     </div>
     <button class="ghost" id="adminBtn">🔐 Admin</button>
   </header>
@@ -47,9 +47,10 @@
 
     <section id="myWorkView" class="view panel">
       <h2>ดูผลงานของฉัน</h2>
+      <p class="subnote">หน้านี้จะแสดงผลงานขึ้นมาทันที พร้อมปุ่ม <b>ดูผลงาน</b> และ <b>แก้ไข</b> โดยการแก้ไขต้องใช้รหัสครูผู้สอน</p>
       <div class="search-row">
-        <input id="myStudentCode" placeholder="กรอกรหัสนักเรียนเพื่อค้นหา" />
-        <button class="primary" id="loadMyWorksBtn">ค้นหา</button>
+        <input id="myStudentCode" placeholder="ถ้าต้องการดูเฉพาะของตนเอง ให้กรอกรหัสนักเรียน เช่น 40201" />
+        <button class="primary" id="loadMyWorksBtn">ค้นหา / รีเฟรชผลงาน</button>
       </div>
       <div id="myWorks" class="cards"></div>
     </section>
@@ -126,6 +127,7 @@
         <div class="search-row">
           <input id="adminSearch" placeholder="ค้นหาชื่อ ห้อง หรือโปรเจกต์" />
           <button class="secondary" id="downloadCsvBtn">ดาวน์โหลด CSV</button>
+          <button class="danger" id="adminRefreshBtn" type="button">รีเฟรชรายการ</button>
         </div>
         <div id="adminList" class="cards"></div>
       </div>

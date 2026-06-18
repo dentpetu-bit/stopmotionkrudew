@@ -36,3 +36,14 @@ input,textarea,select{width:100%;border:1px solid var(--line);border-radius:14px
 .my-work-card .card-actions button{
   min-width:120px;
 }
+
+
+/* V10 เพิ่มป้ายและหน้าการ์ดผลงาน */
+.version-badge{font-style:normal;background:#f97316;color:#fff;border-radius:999px;padding:2px 8px;margin-left:6px;font-size:12px}
+.subnote{background:#fff7ed;border:1px solid #fed7aa;color:#7c2d12;padding:12px 14px;border-radius:14px;margin:8px 0 14px}
+.myworks-note{grid-column:1/-1;background:#eef2ff;color:#312e81;border:1px solid #c7d2fe;border-radius:14px;padding:12px 14px;font-weight:700}
+.card-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.danger{background:#dc2626!important;color:#fff!important;border:none!important;border-radius:12px;padding:10px 14px;font-weight:800;cursor:pointer}
+.danger:hover{filter:brightness(.95)}
+.admin-work-card{border:2px solid #fee2e2}
+.my-work-card{border:2px solid #dbeafe}
