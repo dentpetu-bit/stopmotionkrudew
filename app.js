@@ -1,4 +1,4 @@
-/* Stop Motion Studio Classroom By Kru Dew - V5
+/* Stop Motion Studio Classroom By Kru Dew - V6
    แก้ระบบวาดให้ใช้งานได้จริงบน iPad / Tablet / PC
    ใช้ Pointer Events + Canvas DPR Scaling + touch-action:none
 */
@@ -560,8 +560,8 @@ async function exportGifV5() {
       quality: 10,
       width,
       height,
-      // สำคัญ: กำหนด workerScript ไม่อย่างนั้น GitHub Pages / iPad มัก Export ไม่ได้
-      workerScript: 'https://cdn.jsdelivr.net/npm/gif.js.optimized/dist/gif.worker.js'
+      // สำคัญ: ใช้ workerScript แบบ local เพื่อแก้ปัญหา cross-origin บน GitHub Pages
+      workerScript: 'gif.worker.js'
     });
 
     for (let i = 0; i < frames.length; i++) {
