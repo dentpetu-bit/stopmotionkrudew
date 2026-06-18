@@ -1,246 +1,668 @@
-const views = [...document.querySelectorAll('.view')];
-const qs = (s) => document.querySelector(s);
-const qsa = (s) => [...document.querySelectorAll(s)];
-const toast = (msg) => { const t=qs('#toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2600); };
+/* Stop Motion Studio Classroom By Kru Dew - V2
+   แก้ระบบวาดให้ใช้งานได้จริงบน iPad / Tablet / PC
+   ใช้ Pointer Events + Canvas DPR Scaling + touch-action:none
+*/
 
+let currentTool = 'pen';
 let currentProject = null;
+let currentStudent = null;
 let frames = [];
-let tool = 'pen';
-let drawing = false;
-let historyStack = [];
+let isDrawing = false;
+let lastPoint = null;
+let undoStack = [];
 let previewTimer = null;
 let previewIndex = 0;
-let lastPoint = null;
+let adminProjectsCache = [];
 
-const drawCanvas = qs('#drawCanvas');
-const onionCanvas = qs('#onionCanvas');
-const ctx = drawCanvas.getContext('2d', { willReadFrequently:true });
+const $ = (id) => document.getElementById(id);
+const drawCanvas = $('drawCanvas');
+const onionCanvas = $('onionCanvas');
+const ctx = drawCanvas.getContext('2d', { willReadFrequently: true });
 const onionCtx = onionCanvas.getContext('2d');
 
-function showView(id){ views.forEach(v=>v.classList.toggle('active', v.id===id)); if(id==='galleryView') loadGallery(); }
-qsa('[data-open]').forEach(b=>b.onclick=()=>showView(b.dataset.open));
-qs('#homeBtn').onclick=()=>showView('homeView');
-qs('#adminBtn').onclick=()=>showView('adminView');
+function toast(message, type = 'ok') {
+  const el = $('toast');
+  el.textContent = message;
+  el.className = `toast show ${type}`;
+  setTimeout(() => el.className = 'toast', 2600);
+}
 
-function resizeCanvas(){
-  const wrap = qs('.canvas-wrap');
-  const rect = wrap.getBoundingClientRect();
-  const old = document.createElement('canvas');
-  old.width = drawCanvas.width || 1; old.height = drawCanvas.height || 1;
-  old.getContext('2d').drawImage(drawCanvas,0,0);
+function showView(id) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  $(id).classList.add('active');
+  if (id === 'studioView') setTimeout(resizeCanvasKeepDrawing, 120);
+}
+
+document.querySelectorAll('[data-open]').forEach(btn => btn.addEventListener('click', () => showView(btn.dataset.open)));
+$('homeBtn').addEventListener('click', () => showView('homeView'));
+$('adminBtn').addEventListener('click', () => showView('adminView'));
+
+// ป้องกัน iPad เลื่อนหน้าเว็บระหว่างวาด
+['touchstart','touchmove','touchend'].forEach(evt => {
+  drawCanvas.addEventListener(evt, e => e.preventDefault(), { passive: false });
+  onionCanvas.addEventListener(evt, e => e.preventDefault(), { passive: false });
+});
+
+function setCanvasSize(canvas, context, cssWidth, cssHeight) {
   const dpr = Math.max(1, window.devicePixelRatio || 1);
-  [drawCanvas,onionCanvas].forEach(c=>{ c.width = Math.floor(rect.width*dpr); c.height = Math.floor(rect.height*dpr); c.style.width=rect.width+'px'; c.style.height=rect.height+'px'; });
-  ctx.setTransform(dpr,0,0,dpr,0,0);
-  onionCtx.setTransform(dpr,0,0,dpr,0,0);
-  ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,rect.width,rect.height);
-  if(old.width>1) ctx.drawImage(old,0,0,rect.width,rect.height);
-  drawOnion();
+  canvas.style.width = cssWidth + 'px';
+  canvas.style.height = cssHeight + 'px';
+  canvas.width = Math.round(cssWidth * dpr);
+  canvas.height = Math.round(cssHeight * dpr);
+  context.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
-window.addEventListener('resize', () => setTimeout(resizeCanvas, 100));
 
-function clearCanvas(){ const r=drawCanvas.getBoundingClientRect(); ctx.fillStyle='#fff'; ctx.fillRect(0,0,r.width,r.height); saveHistory(); }
-function saveHistory(){ try{ historyStack.push(drawCanvas.toDataURL('image/png')); if(historyStack.length>20) historyStack.shift(); }catch(e){} }
-function undo(){ if(historyStack.length<2) return; historyStack.pop(); const img=new Image(); img.onload=()=>{ const r=drawCanvas.getBoundingClientRect(); ctx.clearRect(0,0,r.width,r.height); ctx.drawImage(img,0,0,r.width,r.height); }; img.src=historyStack[historyStack.length-1]; }
+function resizeCanvasKeepDrawing() {
+  const wrap = document.querySelector('.canvas-wrap');
+  if (!wrap) return;
+  const oldImage = document.createElement('canvas');
+  oldImage.width = drawCanvas.width;
+  oldImage.height = drawCanvas.height;
+  oldImage.getContext('2d').drawImage(drawCanvas, 0, 0);
 
-function getPoint(e){ const r=drawCanvas.getBoundingClientRect(); return { x:e.clientX-r.left, y:e.clientY-r.top }; }
-function startDraw(e){ e.preventDefault(); drawing=true; lastPoint=getPoint(e); saveHistory(); }
-function moveDraw(e){
-  if(!drawing) return; e.preventDefault();
-  const p=getPoint(e); const size=+qs('#brushSize').value;
-  ctx.lineCap='round'; ctx.lineJoin='round'; ctx.lineWidth=size;
-  ctx.globalCompositeOperation = tool==='eraser' ? 'destination-out' : 'source-over';
-  ctx.strokeStyle = qs('#colorPicker').value;
-  ctx.beginPath(); ctx.moveTo(lastPoint.x,lastPoint.y); ctx.lineTo(p.x,p.y); ctx.stroke();
-  lastPoint=p;
+  const rect = wrap.getBoundingClientRect();
+  const cssWidth = Math.max(320, Math.floor(rect.width));
+  const cssHeight = Math.max(300, Math.floor(rect.height));
+
+  setCanvasSize(drawCanvas, ctx, cssWidth, cssHeight);
+  setCanvasSize(onionCanvas, onionCtx, cssWidth, cssHeight);
+
+  // พื้นหลังขาว ทำให้ export เป็น PNG ไม่โปร่งใส
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, cssWidth, cssHeight);
+  if (oldImage.width > 0) {
+    ctx.drawImage(oldImage, 0, 0, cssWidth, cssHeight);
+  }
+  drawOnionSkin();
 }
-function endDraw(){ drawing=false; ctx.globalCompositeOperation='source-over'; }
+
+window.addEventListener('resize', () => setTimeout(resizeCanvasKeepDrawing, 120));
+window.addEventListener('orientationchange', () => setTimeout(resizeCanvasKeepDrawing, 350));
+
+function getPoint(e) {
+  const rect = drawCanvas.getBoundingClientRect();
+  return {
+    x: (e.clientX - rect.left),
+    y: (e.clientY - rect.top),
+    pressure: e.pressure && e.pressure > 0 ? e.pressure : 0.7
+  };
+}
+
+function saveUndo() {
+  try {
+    undoStack.push(drawCanvas.toDataURL('image/png'));
+    if (undoStack.length > 30) undoStack.shift();
+  } catch (err) {
+    console.warn('Undo save failed', err);
+  }
+}
+
+function startDraw(e) {
+  e.preventDefault();
+  drawCanvas.setPointerCapture?.(e.pointerId);
+  isDrawing = true;
+  lastPoint = getPoint(e);
+  saveUndo();
+
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(lastPoint.x, lastPoint.y);
+}
+
+function draw(e) {
+  if (!isDrawing) return;
+  e.preventDefault();
+  const p = getPoint(e);
+  const size = Number($('brushSize').value);
+  ctx.globalCompositeOperation = currentTool === 'eraser' ? 'destination-out' : 'source-over';
+  ctx.strokeStyle = currentTool === 'eraser' ? 'rgba(0,0,0,1)' : $('colorPicker').value;
+  ctx.lineWidth = currentTool === 'eraser' ? size * 1.8 : Math.max(1, size * p.pressure);
+
+  // ใช้ quadratic curve ช่วยให้เส้นลื่นขึ้น
+  const midX = (lastPoint.x + p.x) / 2;
+  const midY = (lastPoint.y + p.y) / 2;
+  ctx.quadraticCurveTo(lastPoint.x, lastPoint.y, midX, midY);
+  ctx.stroke();
+  lastPoint = p;
+}
+
+function endDraw(e) {
+  if (!isDrawing) return;
+  e?.preventDefault?.();
+  isDrawing = false;
+  ctx.closePath();
+  ctx.globalCompositeOperation = 'source-over';
+  lastPoint = null;
+}
 
 drawCanvas.addEventListener('pointerdown', startDraw);
-drawCanvas.addEventListener('pointermove', moveDraw);
+drawCanvas.addEventListener('pointermove', draw);
 drawCanvas.addEventListener('pointerup', endDraw);
 drawCanvas.addEventListener('pointercancel', endDraw);
 drawCanvas.addEventListener('pointerleave', endDraw);
 
-qsa('.tool').forEach(b=>b.onclick=()=>{ tool=b.dataset.tool; qsa('.tool').forEach(x=>x.classList.remove('active')); b.classList.add('active'); });
-qs('#undoBtn').onclick=undo;
-qs('#clearBtn').onclick=()=>{ if(confirm('ล้างภาพบน Canvas ใช่ไหม?')) clearCanvas(); };
-qs('#onionToggle').onchange=drawOnion;
-
-async function createOrGetStudent(code,name,room){
-  const { data: found } = await sb.from('students').select('*').eq('student_code', code).maybeSingle();
-  if(found) return found;
-  const { data, error } = await sb.from('students').insert({ student_code:code, student_name:name, room }).select().single();
-  if(error) throw error; return data;
+// fallback สำหรับ browser เก่าบางตัว
+if (!window.PointerEvent) {
+  drawCanvas.addEventListener('mousedown', startDraw);
+  drawCanvas.addEventListener('mousemove', draw);
+  window.addEventListener('mouseup', endDraw);
 }
 
-qs('#createProjectBtn').onclick = async () => {
-  try{
-    const code=qs('#studentCode').value.trim(), name=qs('#studentName').value.trim(), room=qs('#studentRoom').value.trim(), pname=qs('#projectName').value.trim(), desc=qs('#projectDesc').value.trim();
-    if(!code||!name||!room||!pname) return toast('กรอกข้อมูลให้ครบก่อนครับ');
-    const student = await createOrGetStudent(code,name,room);
-    const { data, error } = await sb.from('projects').insert({ student_id:student.id, project_name:pname, description:desc, frame_count:0 }).select('*, students(*)').single();
-    if(error) throw error;
-    await openProject(data);
+document.querySelectorAll('.tool').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tool').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentTool = btn.dataset.tool;
+  });
+});
+
+$('undoBtn').addEventListener('click', () => {
+  const data = undoStack.pop();
+  if (!data) return toast('ยังไม่มีประวัติให้ย้อนกลับ', 'warn');
+  const img = new Image();
+  img.onload = () => {
+    ctx.clearRect(0, 0, drawCanvas.clientWidth, drawCanvas.clientHeight);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, drawCanvas.clientWidth, drawCanvas.clientHeight);
+    ctx.drawImage(img, 0, 0, drawCanvas.clientWidth, drawCanvas.clientHeight);
+  };
+  img.src = data;
+});
+
+$('clearBtn').addEventListener('click', () => {
+  if (!confirm('ล้างภาพบนเฟรมปัจจุบันใช่ไหม?')) return;
+  saveUndo();
+  ctx.clearRect(0, 0, drawCanvas.clientWidth, drawCanvas.clientHeight);
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, drawCanvas.clientWidth, drawCanvas.clientHeight);
+});
+
+$('newFrameBtn').addEventListener('click', () => {
+  saveUndo();
+  ctx.clearRect(0, 0, drawCanvas.clientWidth, drawCanvas.clientHeight);
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, drawCanvas.clientWidth, drawCanvas.clientHeight);
+  drawOnionSkin();
+  toast('เปิดเฟรมใหม่แล้ว สามารถวาดต่อได้เลย');
+});
+
+$('duplicateFrameBtn').addEventListener('click', async () => {
+  if (!frames.length) return toast('ยังไม่มีเฟรมก่อนหน้าให้คัดลอก', 'warn');
+  await loadImageToCanvas(frames[frames.length - 1].image_url || frames[frames.length - 1].local_url);
+  toast('คัดลอกเฟรมล่าสุดมาเป็นต้นแบบแล้ว');
+});
+
+$('onionToggle').addEventListener('change', drawOnionSkin);
+
+async function createOrGetStudent(code, name, room) {
+  let { data, error } = await sb.from('students').select('*').eq('student_code', code).maybeSingle();
+  if (error) throw error;
+  if (data) return data;
+  const res = await sb.from('students').insert({ student_code: code, student_name: name, room }).select().single();
+  if (res.error) throw res.error;
+  return res.data;
+}
+
+$('createProjectBtn').addEventListener('click', async () => {
+  const student_code = $('studentCode').value.trim();
+  const student_name = $('studentName').value.trim();
+  const room = $('studentRoom').value.trim();
+  const project_name = $('projectName').value.trim();
+  const description = $('projectDesc').value.trim();
+  if (!student_code || !student_name || !room || !project_name) return toast('กรอกข้อมูลให้ครบก่อนครับ', 'warn');
+  try {
+    currentStudent = await createOrGetStudent(student_code, student_name, room);
+    const { data, error } = await sb.from('projects').insert({
+      student_id: currentStudent.id, project_name, description, frame_count: 0
+    }).select().single();
+    if (error) throw error;
+    currentProject = data;
+    frames = [];
+    updateProjectInfo();
+    renderTimeline();
+    showView('studioView');
+    resizeCanvasKeepDrawing();
     toast('สร้างโปรเจกต์สำเร็จ เริ่มวาดได้เลย');
-  }catch(err){ console.error(err); toast('สร้างโปรเจกต์ไม่สำเร็จ: '+err.message); }
-};
+  } catch (err) {
+    console.error(err);
+    toast('สร้างโปรเจกต์ไม่สำเร็จ: ' + err.message, 'err');
+  }
+});
 
-async function openProject(project){
-  currentProject = project;
-  qs('#currentProjectTitle').textContent = project.project_name;
-  qs('#currentProjectMeta').textContent = `${project.students?.student_name || ''} • ห้อง ${project.students?.room || ''}`;
-  showView('studioView');
-  setTimeout(()=>{ resizeCanvas(); clearCanvas(); },100);
-  await loadFrames();
+function updateProjectInfo() {
+  if (!currentProject || !currentStudent) return;
+  $('currentProjectTitle').textContent = currentProject.project_name;
+  $('currentProjectMeta').textContent = `${currentStudent.student_name} | ห้อง ${currentStudent.room}`;
 }
 
-async function loadFrames(){
-  if(!currentProject) return;
-  const { data, error } = await sb.from('frames').select('*').eq('project_id', currentProject.id).order('frame_number');
-  if(error) return toast(error.message);
+function dataURLToBlob(dataURL) {
+  const parts = dataURL.split(',');
+  const mime = parts[0].match(/:(.*?);/)[1];
+  const bin = atob(parts[1]);
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return new Blob([arr], { type: mime });
+}
+
+$('saveFrameBtn').addEventListener('click', saveFrame);
+
+async function saveFrame() {
+  if (!currentProject || !currentStudent) return toast('กรุณาสร้างหรือเปิดโปรเจกต์ก่อน', 'warn');
+  const frame_number = frames.length + 1;
+  const dataUrl = drawCanvas.toDataURL('image/png');
+  const blob = dataURLToBlob(dataUrl);
+  const filePath = `${currentProject.id}/frame-${String(frame_number).padStart(5, '0')}-${Date.now()}.png`;
+  try {
+    toast('กำลังบันทึกเฟรม...', 'warn');
+    const up = await sb.storage.from(BUCKET_NAME).upload(filePath, blob, { contentType: 'image/png', upsert: true });
+    if (up.error) throw up.error;
+    const pub = sb.storage.from(BUCKET_NAME).getPublicUrl(filePath);
+    const image_url = pub.data.publicUrl;
+    const ins = await sb.from('frames').insert({
+      project_id: currentProject.id,
+      student_id: currentStudent.id,
+      frame_number,
+      image_url
+    }).select().single();
+    if (ins.error) throw ins.error;
+
+    frames.push(ins.data);
+    await sb.from('projects').update({
+      cover_url: frames[0].image_url,
+      frame_count: frames.length,
+      updated_at: new Date().toISOString()
+    }).eq('id', currentProject.id);
+
+    renderTimeline();
+    drawOnionSkin();
+    toast(`บันทึกเฟรมที่ ${frame_number} แล้ว`);
+  } catch (err) {
+    console.error(err);
+    toast('บันทึกไม่สำเร็จ: ' + err.message, 'err');
+  }
+}
+
+function renderTimeline() {
+  $('frameCountBadge').textContent = `${frames.length} เฟรม | เพิ่มได้ต่อเนื่อง`;
+  const tl = $('timeline');
+  tl.innerHTML = '';
+  if (!frames.length) {
+    tl.innerHTML = '<div class="empty">ยังไม่มีเฟรม กด “บันทึกเฟรม” เพื่อเพิ่มเฟรมแรก</div>';
+    return;
+  }
+  frames.forEach((f, i) => {
+    const card = document.createElement('div');
+    card.className = 'frame-card';
+    card.draggable = true;
+    card.dataset.index = i;
+    card.innerHTML = `
+      <div class="frame-no">#${i + 1}</div>
+      <img src="${f.image_url}" alt="frame ${i + 1}" loading="lazy">
+      <div class="frame-actions">
+        <button title="โหลดมาแก้ไข" data-act="load" data-i="${i}">✏️</button>
+        <button title="เลื่อนซ้าย" data-act="left" data-i="${i}">◀</button>
+        <button title="เลื่อนขวา" data-act="right" data-i="${i}">▶</button>
+        <button title="ลบ" data-act="delete" data-i="${i}">🗑</button>
+      </div>`;
+    tl.appendChild(card);
+  });
+}
+
+$('timeline').addEventListener('click', async (e) => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  const i = Number(btn.dataset.i);
+  const act = btn.dataset.act;
+  if (act === 'load') await loadImageToCanvas(frames[i].image_url);
+  if (act === 'left' && i > 0) { [frames[i-1], frames[i]] = [frames[i], frames[i-1]]; await renumberFrames(); }
+  if (act === 'right' && i < frames.length - 1) { [frames[i+1], frames[i]] = [frames[i], frames[i+1]]; await renumberFrames(); }
+  if (act === 'delete') await deleteFrame(i);
+});
+
+async function renumberFrames() {
+  renderTimeline();
+  // อัปเดตลำดับใน DB แบบง่าย เหมาะกับจำนวนเฟรมระดับห้องเรียน
+  for (let i = 0; i < frames.length; i++) {
+    frames[i].frame_number = i + 1;
+    await sb.from('frames').update({ frame_number: i + 1 }).eq('id', frames[i].id);
+  }
+  drawOnionSkin();
+}
+
+async function deleteFrame(i) {
+  if (!confirm(`ลบเฟรมที่ ${i + 1} ใช่ไหม?`)) return;
+  const f = frames[i];
+  try {
+    await sb.from('frames').delete().eq('id', f.id);
+    frames.splice(i, 1);
+    await renumberFrames();
+    await sb.from('projects').update({
+      cover_url: frames[0]?.image_url || null,
+      frame_count: frames.length,
+      updated_at: new Date().toISOString()
+    }).eq('id', currentProject.id);
+    toast('ลบเฟรมแล้ว');
+  } catch (err) {
+    toast('ลบไม่สำเร็จ: ' + err.message, 'err');
+  }
+}
+
+async function loadImageToCanvas(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      saveUndo();
+      ctx.clearRect(0, 0, drawCanvas.clientWidth, drawCanvas.clientHeight);
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, drawCanvas.clientWidth, drawCanvas.clientHeight);
+      ctx.drawImage(img, 0, 0, drawCanvas.clientWidth, drawCanvas.clientHeight);
+      resolve();
+    };
+    img.onerror = reject;
+    img.src = url;
+  });
+}
+
+function drawOnionSkin() {
+  onionCtx.clearRect(0, 0, onionCanvas.clientWidth, onionCanvas.clientHeight);
+  if (!$('onionToggle').checked || !frames.length) return;
+  const last = frames[frames.length - 1];
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = () => {
+    onionCtx.clearRect(0, 0, onionCanvas.clientWidth, onionCanvas.clientHeight);
+    onionCtx.globalAlpha = 0.28;
+    onionCtx.drawImage(img, 0, 0, onionCanvas.clientWidth, onionCanvas.clientHeight);
+    onionCtx.globalAlpha = 1;
+  };
+  img.src = last.image_url;
+}
+
+async function loadFrames(projectId) {
+  const { data, error } = await sb.from('frames').select('*').eq('project_id', projectId).order('frame_number', { ascending: true });
+  if (error) throw error;
   frames = data || [];
   renderTimeline();
-  drawOnion();
+  drawOnionSkin();
 }
 
-function renderTimeline(){
-  qs('#frameCountBadge').textContent = `${frames.length} เฟรม`;
-  const el=qs('#timeline'); el.innerHTML='';
-  frames.forEach((f,i)=>{
-    const d=document.createElement('div'); d.className='frame'; d.draggable=true; d.dataset.index=i;
-    d.innerHTML=`<button title="ลบ">×</button><img src="${f.image_url}" alt="frame"><small>เฟรม ${i+1}</small>`;
-    d.querySelector('button').onclick=async(ev)=>{ ev.stopPropagation(); await deleteFrame(f.id); };
-    d.onclick=()=>loadFrameToCanvas(f.image_url);
-    d.addEventListener('dragstart',ev=>ev.dataTransfer.setData('text/plain',i));
-    d.addEventListener('dragover',ev=>ev.preventDefault());
-    d.addEventListener('drop',async ev=>{ ev.preventDefault(); const from=+ev.dataTransfer.getData('text/plain'); await reorderFrames(from,i); });
-    el.appendChild(d);
-  });
+async function openProject(projectId) {
+  const { data: project, error } = await sb.from('projects').select('*, students(*)').eq('id', projectId).single();
+  if (error) return toast('เปิดโปรเจกต์ไม่ได้: ' + error.message, 'err');
+  currentProject = project;
+  currentStudent = project.students;
+  updateProjectInfo();
+  await loadFrames(projectId);
+  showView('studioView');
+  resizeCanvasKeepDrawing();
 }
 
-async function loadFrameToCanvas(url){
-  const img=new Image(); img.crossOrigin='anonymous';
-  img.onload=()=>{ const r=drawCanvas.getBoundingClientRect(); ctx.fillStyle='#fff'; ctx.fillRect(0,0,r.width,r.height); ctx.drawImage(img,0,0,r.width,r.height); saveHistory(); };
-  img.src=url;
+function projectCard(p) {
+  const cover = p.cover_url || 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="400" height="240"><rect width="100%" height="100%" fill="#ede9fe"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-size="24" fill="#6d28d9">No Frame</text></svg>`);
+  const s = p.students || {};
+  return `<div class="work-card">
+    <img src="${cover}" alt="cover" loading="lazy">
+    <div><h3>${p.project_name}</h3><p>${s.student_name || '-'} | ห้อง ${s.room || '-'}</p><p>${p.frame_count || 0} เฟรม</p>
+    <button class="primary" data-project="${p.id}">เปิดผลงาน</button></div>
+  </div>`;
 }
 
-function drawOnion(){
-  const r=onionCanvas.getBoundingClientRect(); onionCtx.clearRect(0,0,r.width,r.height);
-  if(!qs('#onionToggle').checked || !frames.length) return;
-  const img=new Image(); img.crossOrigin='anonymous';
-  img.onload=()=>onionCtx.drawImage(img,0,0,r.width,r.height);
-  img.src=frames[frames.length-1].image_url;
-}
-
-function canvasToBlob(){ return new Promise(resolve=>drawCanvas.toBlob(resolve,'image/png',0.95)); }
-qs('#saveFrameBtn').onclick = async()=>{
-  try{
-    if(!currentProject) return toast('ยังไม่ได้เลือกโปรเจกต์');
-    const blob = await canvasToBlob();
-    const n = frames.length + 1;
-    const path = `${currentProject.id}/frame-${String(n).padStart(4,'0')}-${Date.now()}.png`;
-    const { error: upErr } = await sb.storage.from(BUCKET_NAME).upload(path, blob, { contentType:'image/png', upsert:false });
-    if(upErr) throw upErr;
-    const { data: pub } = sb.storage.from(BUCKET_NAME).getPublicUrl(path);
-    const image_url = pub.publicUrl;
-    const { error } = await sb.from('frames').insert({ project_id:currentProject.id, student_id:currentProject.student_id, frame_number:n, image_url });
-    if(error) throw error;
-    await sb.from('projects').update({ frame_count:n, cover_url: frames.length ? currentProject.cover_url : image_url, updated_at:new Date().toISOString() }).eq('id', currentProject.id);
-    currentProject.cover_url = currentProject.cover_url || image_url;
-    await loadFrames(); clearCanvas();
-    toast(`บันทึกเฟรมที่ ${n} แล้ว`);
-  }catch(err){ console.error(err); toast('บันทึกเฟรมไม่สำเร็จ: '+err.message); }
-};
-
-async function deleteFrame(id){
-  if(!confirm('ลบเฟรมนี้ใช่ไหม?')) return;
-  const { error } = await sb.from('frames').delete().eq('id',id);
-  if(error) return toast(error.message);
-  await renumberFrames(); await loadFrames(); toast('ลบเฟรมแล้ว');
-}
-async function reorderFrames(from,to){
-  if(from===to) return;
-  const arr=[...frames]; const [m]=arr.splice(from,1); arr.splice(to,0,m);
-  await Promise.all(arr.map((f,i)=>sb.from('frames').update({frame_number:i+1}).eq('id',f.id)));
-  await loadFrames();
-}
-async function renumberFrames(){
-  const { data } = await sb.from('frames').select('*').eq('project_id',currentProject.id).order('frame_number');
-  await Promise.all((data||[]).map((f,i)=>sb.from('frames').update({frame_number:i+1}).eq('id',f.id)));
-  await sb.from('projects').update({ frame_count:(data||[]).length }).eq('id',currentProject.id);
-}
-
-function openPreview(){ if(!frames.length) return toast('ยังไม่มีเฟรม'); qs('#previewDialog').showModal(); qs('#previewImage').src=frames[0].image_url; }
-function playPreview(){ if(!frames.length) return; clearInterval(previewTimer); const fps=+qs('#fpsSelect').value; previewTimer=setInterval(()=>{ qs('#previewImage').src=frames[previewIndex%frames.length].image_url; previewIndex++; },1000/fps); }
-function stopPreview(){ clearInterval(previewTimer); previewIndex=0; if(frames[0]) qs('#previewImage').src=frames[0].image_url; }
-qs('#previewBtn').onclick=()=>{ openPreview(); playPreview(); };
-qs('#playPreviewBtn').onclick=playPreview;
-qs('#pausePreviewBtn').onclick=()=>clearInterval(previewTimer);
-qs('#stopPreviewBtn').onclick=stopPreview;
-qs('#closePreviewBtn').onclick=()=>{ stopPreview(); qs('#previewDialog').close(); };
-
-qs('#exportGifBtn').onclick = async()=>{
-  if(!frames.length) return toast('ยังไม่มีเฟรมสำหรับ Export');
-  toast('กำลังสร้าง GIF...');
-  const gif = new GIF({ workers:2, quality:10, workerScript:'https://cdn.jsdelivr.net/npm/gif.js.optimized/dist/gif.worker.js' });
-  const fps=+qs('#fpsSelect').value;
-  const delay=1000/fps;
-  const r=drawCanvas.getBoundingClientRect();
-  for(const f of frames){
-    const img = await loadImage(f.image_url);
-    const temp=document.createElement('canvas'); temp.width=r.width; temp.height=r.height;
-    const tctx=temp.getContext('2d'); tctx.fillStyle='#fff'; tctx.fillRect(0,0,temp.width,temp.height); tctx.drawImage(img,0,0,temp.width,temp.height);
-    gif.addFrame(temp,{delay});
-  }
-  gif.on('finished', blob=>{ const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=(currentProject?.project_name||'stop-motion')+'.gif'; a.click(); toast('ดาวน์โหลด GIF แล้ว'); });
-  gif.render();
-};
-function loadImage(url){ return new Promise((res,rej)=>{ const img=new Image(); img.crossOrigin='anonymous'; img.onload=()=>res(img); img.onerror=rej; img.src=url; }); }
-
-async function getProjects(filterCode){
-  let q = sb.from('projects').select('*, students(*)').order('created_at',{ascending:false});
+async function loadGallery(target = 'gallery', filter = null) {
+  let q = sb.from('projects').select('*, students(*)').order('created_at', { ascending: false }).limit(200);
   const { data, error } = await q;
-  if(error) throw error;
-  return filterCode ? data.filter(p=>p.students?.student_code===filterCode) : data;
+  if (error) return toast('โหลดคลังผลงานไม่ได้: ' + error.message, 'err');
+  let list = data || [];
+  if (filter) list = list.filter(p => p.students?.student_code === filter);
+  $(target).innerHTML = list.length ? list.map(projectCard).join('') : '<div class="empty">ไม่พบผลงาน</div>';
+  $(target).querySelectorAll('[data-project]').forEach(btn => btn.addEventListener('click', () => openProject(btn.dataset.project)));
 }
-async function loadGallery(){ try{ renderCards(await getProjects(), qs('#gallery')); }catch(e){ toast(e.message); } }
-qs('#refreshGalleryBtn').onclick=loadGallery;
-qs('#loadMyWorksBtn').onclick=async()=>{ const code=qs('#myStudentCode').value.trim(); if(!code)return toast('กรอกรหัสนักเรียนก่อน'); renderCards(await getProjects(code), qs('#myWorks')); };
-function renderCards(projects, el){
-  el.innerHTML=''; if(!projects.length){ el.innerHTML='<p class="empty">ยังไม่พบผลงาน</p>'; return; }
-  projects.forEach(p=>{
-    const c=document.createElement('div'); c.className='card';
-    c.innerHTML=`<img src="${p.cover_url||''}" alt="cover"><div class="card-body"><h3>${p.project_name}</h3><p>${p.students?.student_name||'-'} • ห้อง ${p.students?.room||'-'}</p><p>${p.frame_count||0} เฟรม</p><p>${new Date(p.created_at).toLocaleString('th-TH')}</p><div class="card-actions"><button class="primary open">เปิดดู/แก้ไข</button></div></div>`;
-    c.querySelector('.open').onclick=()=>openProject(p);
-    el.appendChild(c);
+
+$('refreshGalleryBtn').addEventListener('click', () => loadGallery('gallery'));
+$('loadMyWorksBtn').addEventListener('click', () => loadGallery('myWorks', $('myStudentCode').value.trim()));
+
+$('previewBtn').addEventListener('click', () => {
+  if (!frames.length) return toast('ยังไม่มีเฟรมให้เล่น', 'warn');
+  previewIndex = 0;
+  $('previewImage').src = frames[0].image_url;
+  $('previewDialog').showModal();
+});
+$('closePreviewBtn').addEventListener('click', () => { stopPreview(); $('previewDialog').close(); });
+$('playPreviewBtn').addEventListener('click', playPreview);
+$('pausePreviewBtn').addEventListener('click', pausePreview);
+$('stopPreviewBtn').addEventListener('click', stopPreview);
+
+function playPreview() {
+  pausePreview();
+  const fps = Number($('fpsSelect').value);
+  previewTimer = setInterval(() => {
+    if (!frames.length) return;
+    $('previewImage').src = frames[previewIndex].image_url;
+    previewIndex = (previewIndex + 1) % frames.length;
+  }, 1000 / fps);
+}
+function pausePreview() { if (previewTimer) clearInterval(previewTimer); previewTimer = null; }
+function stopPreview() { pausePreview(); previewIndex = 0; if (frames[0]) $('previewImage').src = frames[0].image_url; }
+
+$('exportGifBtn').addEventListener('click', async () => {
+  if (!frames.length) return toast('ยังไม่มีเฟรมให้ Export', 'warn');
+  try {
+    toast('กำลังสร้าง GIF อาจใช้เวลาสักครู่...', 'warn');
+    const gif = new GIF({ workers: 2, quality: 10, width: drawCanvas.clientWidth, height: drawCanvas.clientHeight });
+    const delay = 1000 / Number($('fpsSelect').value);
+    for (const f of frames) {
+      const img = await loadImageElement(f.image_url);
+      const temp = document.createElement('canvas');
+      temp.width = drawCanvas.clientWidth;
+      temp.height = drawCanvas.clientHeight;
+      const tctx = temp.getContext('2d');
+      tctx.fillStyle = '#fff';
+      tctx.fillRect(0, 0, temp.width, temp.height);
+      tctx.drawImage(img, 0, 0, temp.width, temp.height);
+      gif.addFrame(temp, { delay });
+    }
+    gif.on('finished', blob => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${currentProject?.project_name || 'stop-motion'}.gif`;
+      a.click();
+      toast('ดาวน์โหลด GIF สำเร็จ');
+    });
+    gif.render();
+  } catch (err) {
+    toast('Export ไม่สำเร็จ: ' + err.message, 'err');
+  }
+});
+
+function loadImageElement(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = url;
   });
 }
 
-qs('#loginAdminBtn').onclick=async()=>{ if(qs('#adminPassword').value!==ADMIN_PASSWORD) return toast('รหัสผ่านไม่ถูกต้อง'); qs('#adminLogin').classList.add('hidden'); qs('#adminPanel').classList.remove('hidden'); await loadAdmin(); };
-async function loadAdmin(){
-  const projects=await getProjects();
-  const { count: frameCount } = await sb.from('frames').select('*',{count:'exact',head:true});
-  const students = new Set(projects.map(p=>p.student_id));
-  qs('#statProjects').textContent=projects.length; qs('#statFrames').textContent=frameCount||0; qs('#statStudents').textContent=students.size;
-  renderAdmin(projects);
-}
-function renderAdmin(projects){
-  const keyword=qs('#adminSearch').value.trim().toLowerCase();
-  const list=projects.filter(p=>`${p.project_name} ${p.students?.student_name} ${p.students?.room}`.toLowerCase().includes(keyword));
-  const el=qs('#adminList'); el.innerHTML='';
-  list.forEach(p=>{
-    const c=document.createElement('div'); c.className='card';
-    c.innerHTML=`<img src="${p.cover_url||''}"><div class="card-body"><h3>${p.project_name}</h3><p>${p.students?.student_name||'-'} • ${p.students?.room||'-'}</p><p>${p.frame_count||0} เฟรม</p><div class="card-actions"><button class="primary open">เปิด</button><button class="secondary csv">CSV</button><button class="danger del">ลบ</button></div></div>`;
-    c.querySelector('.open').onclick=()=>openProject(p);
-    c.querySelector('.csv').onclick=()=>downloadProjectCsv(p);
-    c.querySelector('.del').onclick=()=>deleteProject(p.id);
-    el.appendChild(c);
-  });
-}
-qs('#adminSearch').oninput=loadAdmin;
-async function deleteProject(id){ if(!confirm('ลบโปรเจกต์นี้และเฟรมทั้งหมดใช่ไหม?')) return; await sb.from('frames').delete().eq('project_id',id); await sb.from('projects').delete().eq('id',id); toast('ลบโปรเจกต์แล้ว'); loadAdmin(); }
-async function downloadProjectCsv(p){ const {data}=await sb.from('frames').select('*').eq('project_id',p.id).order('frame_number'); downloadCsv(data||[], `frames-${p.project_name}.csv`); }
-qs('#downloadCsvBtn').onclick=async()=>{ const projects=await getProjects(); downloadCsv(projects.map(p=>({project:p.project_name, student:p.students?.student_name, room:p.students?.room, frames:p.frame_count, created_at:p.created_at})), 'projects.csv'); };
-function downloadCsv(rows,filename){ const keys=Object.keys(rows[0]||{}); const csv=[keys.join(','),...rows.map(r=>keys.map(k=>`"${String(r[k]??'').replaceAll('"','""')}"`).join(','))].join('\n'); const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'})); a.download=filename; a.click(); }
+$('loginAdminBtn').addEventListener('click', async () => {
+  if ($('adminPassword').value !== ADMIN_PASSWORD) return toast('รหัสผ่านไม่ถูกต้อง', 'err');
+  $('adminLogin').classList.add('hidden');
+  $('adminPanel').classList.remove('hidden');
+  await loadAdmin();
+});
 
-setTimeout(()=>{ resizeCanvas(); clearCanvas(); },200);
+async function loadAdmin() {
+  const { data: projects, error } = await sb.from('projects').select('*, students(*)').order('created_at', { ascending: false }).limit(500);
+  if (error) return toast('โหลด Admin ไม่ได้: ' + error.message, 'err');
+  adminProjectsCache = projects || [];
+  $('statProjects').textContent = adminProjectsCache.length;
+  $('statFrames').textContent = adminProjectsCache.reduce((sum, p) => sum + (p.frame_count || 0), 0);
+  $('statStudents').textContent = new Set(adminProjectsCache.map(p => p.students?.student_code).filter(Boolean)).size;
+  renderAdmin(adminProjectsCache);
+}
+
+function renderAdmin(list) {
+  $('adminList').innerHTML = list.length ? list.map(projectCard).join('') : '<div class="empty">ไม่มีข้อมูล</div>';
+  $('adminList').querySelectorAll('[data-project]').forEach(btn => btn.addEventListener('click', () => openProject(btn.dataset.project)));
+}
+
+$('adminSearch').addEventListener('input', () => {
+  const q = $('adminSearch').value.trim().toLowerCase();
+  const list = adminProjectsCache.filter(p => `${p.project_name} ${p.students?.student_name} ${p.students?.room}`.toLowerCase().includes(q));
+  renderAdmin(list);
+});
+
+$('downloadCsvBtn').addEventListener('click', () => {
+  const rows = [['project_name','student_name','room','frame_count','created_at']];
+  adminProjectsCache.forEach(p => rows.push([p.project_name, p.students?.student_name || '', p.students?.room || '', p.frame_count || 0, p.created_at]));
+  const csv = rows.map(r => r.map(v => `"${String(v).replaceAll('"','""')}"`).join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  a.download = 'stop-motion-projects.csv';
+  a.click();
+});
+
+// โหลดคลังผลงานครั้งแรก และตั้ง canvas
+window.addEventListener('load', () => {
+  resizeCanvasKeepDrawing();
+  loadGallery('gallery');
+});
+
+/* ===============================
+   V3 RELIABLE DRAWING HOTFIX
+   แก้ปัญหา Canvas เขียนไม่ได้ใน iPad / Tablet / PC
+   ใช้ทั้ง Pointer + Touch + Mouse และกัน event ซ้อน
+================================ */
+(function installReliableDrawingHotfix(){
+  if (!drawCanvas || !ctx) return;
+
+  // กัน browser เลื่อนหน้า/ซูม ระหว่างวาด
+  drawCanvas.style.touchAction = 'none';
+  drawCanvas.style.webkitUserSelect = 'none';
+  drawCanvas.style.userSelect = 'none';
+  drawCanvas.style.pointerEvents = 'auto';
+  drawCanvas.style.zIndex = '2';
+  onionCanvas.style.pointerEvents = 'none';
+  onionCanvas.style.zIndex = '1';
+
+  // ถอด event เดิมออกก่อน เพื่อไม่ให้เส้นซ้อนหรือพังจาก browser บางตัว
+  try {
+    drawCanvas.removeEventListener('pointerdown', startDraw);
+    drawCanvas.removeEventListener('pointermove', draw);
+    drawCanvas.removeEventListener('pointerup', endDraw);
+    drawCanvas.removeEventListener('pointercancel', endDraw);
+    drawCanvas.removeEventListener('pointerleave', endDraw);
+    drawCanvas.removeEventListener('mousedown', startDraw);
+    drawCanvas.removeEventListener('mousemove', draw);
+    window.removeEventListener('mouseup', endDraw);
+  } catch (err) {}
+
+  let drawingNow = false;
+  let lastX = 0;
+  let lastY = 0;
+  let activePointerId = null;
+  let lastTouchTime = 0;
+
+  function eventPoint(ev) {
+    const rect = drawCanvas.getBoundingClientRect();
+    const src = ev.touches && ev.touches.length ? ev.touches[0]
+      : ev.changedTouches && ev.changedTouches.length ? ev.changedTouches[0]
+      : ev;
+    return {
+      x: src.clientX - rect.left,
+      y: src.clientY - rect.top,
+      pressure: ev.pressure && ev.pressure > 0 ? ev.pressure : 1
+    };
+  }
+
+  function begin(ev) {
+    if (ev.cancelable) ev.preventDefault();
+    ev.stopPropagation?.();
+    if (ev.type.startsWith('touch')) lastTouchTime = Date.now();
+    if (ev.pointerId !== undefined) activePointerId = ev.pointerId;
+
+    // บังคับ resize อีกรอบ หาก canvas ยังไม่มีขนาดจริง
+    if (drawCanvas.clientWidth < 50 || drawCanvas.clientHeight < 50) {
+      resizeCanvasKeepDrawing();
+    }
+
+    drawingNow = true;
+    const p = eventPoint(ev);
+    lastX = p.x;
+    lastY = p.y;
+    saveUndo();
+
+    ctx.globalCompositeOperation = currentTool === 'eraser' ? 'destination-out' : 'source-over';
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(lastX, lastY);
+
+    try { drawCanvas.setPointerCapture?.(ev.pointerId); } catch (err) {}
+
+    // แตะจุดเดียวก็ให้เกิดหมึกทันที
+    const size = Number($('brushSize')?.value || 8);
+    ctx.lineWidth = currentTool === 'eraser' ? size * 1.8 : size;
+    ctx.strokeStyle = currentTool === 'eraser' ? '#000' : ($('colorPicker')?.value || '#111827');
+    ctx.lineTo(lastX + 0.01, lastY + 0.01);
+    ctx.stroke();
+  }
+
+  function move(ev) {
+    if (!drawingNow) return;
+    if (ev.pointerId !== undefined && activePointerId !== null && ev.pointerId !== activePointerId) return;
+    if (ev.cancelable) ev.preventDefault();
+    ev.stopPropagation?.();
+
+    const p = eventPoint(ev);
+    const size = Number($('brushSize')?.value || 8);
+    ctx.globalCompositeOperation = currentTool === 'eraser' ? 'destination-out' : 'source-over';
+    ctx.strokeStyle = currentTool === 'eraser' ? '#000' : ($('colorPicker')?.value || '#111827');
+    ctx.lineWidth = currentTool === 'eraser' ? size * 1.8 : Math.max(1, size * p.pressure);
+
+    const midX = (lastX + p.x) / 2;
+    const midY = (lastY + p.y) / 2;
+    ctx.quadraticCurveTo(lastX, lastY, midX, midY);
+    ctx.stroke();
+    lastX = p.x;
+    lastY = p.y;
+  }
+
+  function finish(ev) {
+    if (!drawingNow) return;
+    if (ev?.cancelable) ev.preventDefault();
+    ev?.stopPropagation?.();
+    drawingNow = false;
+    activePointerId = null;
+    ctx.closePath();
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  // Pointer Events: ใช้กับ PC, Chrome, Edge, Safari iPad รุ่นใหม่
+  drawCanvas.addEventListener('pointerdown', begin, { passive:false });
+  drawCanvas.addEventListener('pointermove', move, { passive:false });
+  drawCanvas.addEventListener('pointerup', finish, { passive:false });
+  drawCanvas.addEventListener('pointercancel', finish, { passive:false });
+  drawCanvas.addEventListener('pointerleave', finish, { passive:false });
+
+  // Touch Events: สำรองสำหรับ iPad/Safari บางรุ่น
+  drawCanvas.addEventListener('touchstart', begin, { passive:false });
+  drawCanvas.addEventListener('touchmove', move, { passive:false });
+  drawCanvas.addEventListener('touchend', finish, { passive:false });
+  drawCanvas.addEventListener('touchcancel', finish, { passive:false });
+
+  // Mouse Events: สำรองสำหรับคอมพิวเตอร์
+  drawCanvas.addEventListener('mousedown', function(ev){
+    if (Date.now() - lastTouchTime < 700) return;
+    begin(ev);
+  }, { passive:false });
+  window.addEventListener('mousemove', function(ev){
+    if (Date.now() - lastTouchTime < 700) return;
+    move(ev);
+  }, { passive:false });
+  window.addEventListener('mouseup', finish, { passive:false });
+
+  // เรียก resize หลังโหลดหน้า เพื่อให้ Canvas มีขนาดจริง
+  setTimeout(resizeCanvasKeepDrawing, 300);
+})();
