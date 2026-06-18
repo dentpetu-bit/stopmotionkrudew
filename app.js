@@ -1,4 +1,4 @@
-/* Stop Motion Studio Classroom By Kru Dew - V2
+/* Stop Motion Studio Classroom By Kru Dew - V4
    แก้ระบบวาดให้ใช้งานได้จริงบน iPad / Tablet / PC
    ใช้ Pointer Events + Canvas DPR Scaling + touch-action:none
 */
@@ -177,6 +177,66 @@ $('clearBtn').addEventListener('click', () => {
   ctx.fillStyle = '#fff';
   ctx.fillRect(0, 0, drawCanvas.clientWidth, drawCanvas.clientHeight);
 });
+
+
+// V4: ถ่ายภาพ/นำภาพจากเครื่องเข้า Canvas แล้ววาดทับได้ทันที
+$('cameraBtn')?.addEventListener('click', () => {
+  if (!currentProject || !currentStudent) {
+    toast('กรุณาสร้างหรือเปิดโปรเจกต์ก่อนนำภาพเข้า', 'warn');
+    return;
+  }
+  $('cameraInput').click();
+});
+
+$('cameraInput')?.addEventListener('change', async (e) => {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  if (!file.type.startsWith('image/')) {
+    toast('กรุณาเลือกไฟล์รูปภาพเท่านั้น', 'warn');
+    e.target.value = '';
+    return;
+  }
+  try {
+    await loadLocalFileToCanvas(file);
+    drawOnionSkin();
+    toast('นำภาพเข้า Canvas แล้ว สามารถขีดเขียนต่อได้เลย');
+  } catch (err) {
+    console.error(err);
+    toast('นำภาพเข้าไม่สำเร็จ: ' + err.message, 'err');
+  } finally {
+    e.target.value = '';
+  }
+});
+
+async function loadLocalFileToCanvas(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    await new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        saveUndo();
+        const w = drawCanvas.clientWidth;
+        const h = drawCanvas.clientHeight;
+        ctx.clearRect(0, 0, w, h);
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, w, h);
+
+        // วางภาพแบบ contain ให้อยู่กลาง Canvas ไม่บิดสัดส่วน
+        const scale = Math.min(w / img.width, h / img.height);
+        const dw = img.width * scale;
+        const dh = img.height * scale;
+        const dx = (w - dw) / 2;
+        const dy = (h - dh) / 2;
+        ctx.drawImage(img, dx, dy, dw, dh);
+        resolve();
+      };
+      img.onerror = () => reject(new Error('อ่านไฟล์ภาพไม่ได้'));
+      img.src = url;
+    });
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
 
 $('newFrameBtn').addEventListener('click', () => {
   saveUndo();
@@ -428,7 +488,18 @@ $('previewBtn').addEventListener('click', () => {
   $('previewImage').src = frames[0].image_url;
   $('previewDialog').showModal();
 });
-$('closePreviewBtn').addEventListener('click', () => { stopPreview(); $('previewDialog').close(); });
+function closePreviewDialog() {
+  stopPreview();
+  try { $('previewDialog').close(); } catch (err) {}
+}
+$('closePreviewBtn').addEventListener('click', closePreviewDialog);
+$('closePreviewBtnBottom')?.addEventListener('click', closePreviewDialog);
+$('previewDialog').addEventListener('cancel', (e) => { e.preventDefault(); closePreviewDialog(); });
+$('previewDialog').addEventListener('click', (e) => {
+  const rect = $('previewDialog').getBoundingClientRect();
+  const clickedBackdrop = e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom;
+  if (clickedBackdrop) closePreviewDialog();
+});
 $('playPreviewBtn').addEventListener('click', playPreview);
 $('pausePreviewBtn').addEventListener('click', pausePreview);
 $('stopPreviewBtn').addEventListener('click', stopPreview);

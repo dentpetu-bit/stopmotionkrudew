@@ -91,6 +91,8 @@
         <label class="tool-label">ขนาด <input id="brushSize" type="range" min="2" max="40" value="8" /></label>
         <button id="undoBtn">↩️ Undo</button>
         <button id="clearBtn">🗑️ ล้างภาพ</button>
+        <button id="cameraBtn">📷 ถ่าย/นำภาพเข้า</button>
+        <input id="cameraInput" type="file" accept="image/*" capture="environment" class="hidden" />
         <button id="newFrameBtn">➕ เฟรมใหม่</button>
         <button id="duplicateFrameBtn">📋 คัดลอกเฟรมล่าสุด</button>
         <button class="primary" id="saveFrameBtn">📸 บันทึกเฟรม</button>
@@ -131,13 +133,14 @@
   <dialog id="previewDialog">
     <div class="dialog-head">
       <h3>Preview Stop Motion</h3>
-      <button id="closePreviewBtn" class="ghost">✕</button>
+      <button id="closePreviewBtn" class="close-preview-btn" type="button">✕ ปิด</button>
     </div>
     <img id="previewImage" alt="preview" />
     <div class="actions center">
       <button class="primary" id="playPreviewBtn">▶️ Play</button>
       <button class="secondary" id="pausePreviewBtn">⏸ Pause</button>
       <button class="secondary" id="stopPreviewBtn">⏹ Stop</button>
+      <button class="danger" id="closePreviewBtnBottom" type="button">ปิด Preview</button>
     </div>
   </dialog>
 

@@ -17,3 +17,11 @@ input,textarea,select{width:100%;border:1px solid var(--line);border-radius:14px
 
 /* V3: บังคับให้ Canvas รับการเขียนบน iPad/Tablet/PC */
 .canvas-wrap,#drawCanvas,#onionCanvas{touch-action:none!important;-ms-touch-action:none!important;-webkit-user-select:none!important;user-select:none!important;}
+
+
+/* V4: Preview มีปุ่มปิดชัดเจน และรองรับถ่ายภาพเข้า Canvas */
+#previewDialog{position:relative;max-height:92vh;overflow:auto;}
+.close-preview-btn{background:#ef4444!important;color:#fff!important;border-radius:999px;padding:10px 16px;font-weight:900;position:sticky;top:0;z-index:5;}
+.danger{background:#ef4444;color:#fff;}
+#closePreviewBtnBottom{min-width:160px;}
+@media(max-width:900px){#previewDialog .actions{position:sticky;bottom:0;background:#fff;padding:10px 0;flex-wrap:wrap}#previewImage{max-height:58vh}.close-preview-btn{font-size:16px}}
