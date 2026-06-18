@@ -1,7 +1,7 @@
 // ใส่ค่า Supabase ของครูตรงนี้
 // วิธีดูค่า: Supabase Dashboard > Project Settings > API
-const SUPABASE_URL = "YOUR_SUPABASE_URL";
-const SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_KEY";
+const SUPABASE_URL = "https://zmxectdpriiwtsbaezpv.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_4KrThBM_827Gsr_4sKfsGA_J1vQGWHu";
 
 // รหัสผ่าน Admin แบบง่าย สำหรับห้องเรียน
 // หมายเหตุ: เพราะเป็น GitHub Pages รหัสนี้ไม่ใช่ระบบความปลอดภัยระดับสูง
