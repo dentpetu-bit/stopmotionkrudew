@@ -1,4 +1,4 @@
-/* Stop Motion Studio Classroom By Kru Dew - V7
+/* Stop Motion Studio Classroom By Kru Dew - V8
    แก้ระบบวาดให้ใช้งานได้จริงบน iPad / Tablet / PC
    ใช้ Pointer Events + Canvas DPR Scaling + touch-action:none
 */
@@ -234,6 +234,22 @@ function fileToDataURL(file) {
     reader.onerror = () => reject(new Error('อ่านไฟล์ภาพจากอุปกรณ์ไม่ได้'));
     reader.readAsDataURL(file);
   });
+}
+
+
+// วาดรูปลงกรอบแบบ contain: คงสัดส่วน ไม่ยืด ไม่บิด และอยู่กึ่งกลาง
+function drawImageContain(targetCtx, img, x, y, w, h) {
+  const iw = img.naturalWidth || img.width;
+  const ih = img.naturalHeight || img.height;
+  if (!iw || !ih || !w || !h) return;
+
+  const scale = Math.min(w / iw, h / ih);
+  const dw = iw * scale;
+  const dh = ih * scale;
+  const dx = x + (w - dw) / 2;
+  const dy = y + (h - dh) / 2;
+
+  targetCtx.drawImage(img, dx, dy, dw, dh);
 }
 
 function drawImageSourceToCanvas(src) {

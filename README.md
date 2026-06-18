@@ -1,4 +1,7 @@
-# Stop Motion Studio Classroom By Kru Dew
+# Stop Motion Studio Classroom By Kru Dew - V8
+
+เวอร์ชันนี้แก้ปัญหา Export GIF ขึ้น `drawImageContain is not defined` และคงสัดส่วนภาพ GIF ให้ไม่ยืด/ไม่บิด
+
 
 เว็บแอปสำหรับให้นักเรียนวาดภาพทีละเฟรมบน iPad, Tablet, มือถือ หรือคอมพิวเตอร์ แล้วรวมเป็น Stop Motion ได้
 
@@ -146,13 +149,13 @@ const ADMIN_PASSWORD = "kru-dew-1234";
 - บน iPad/iPhone ปุ่มนี้จะเปิดกล้องหรือคลังภาพตามที่อุปกรณ์รองรับ
 
 
-## V7 Fix
+## V8 Fix
 - เพิ่มปุ่มเลือกภาพจากเครื่องใน index.html ให้แสดงจริง
 - เพิ่มไฟล์ gif.worker.js แบบ local wrapper เพื่อแก้ Export GIF บน GitHub Pages
 - ถ้า Export GIF ยังไม่ทำงาน ให้เช็กว่าอัปโหลดไฟล์ gif.worker.js ขึ้น GitHub แล้ว และเปิดเว็บด้วย ?v=6
 
 
-## อัปเดต V7
+## อัปเดต V8
 - แก้ Export GIF ไม่ให้ภาพยืดหรือบิด
 - GIF ใช้สัดส่วนจากเฟรมจริง เหมือนที่เห็นใน Preview
 - ถ้าเฟรมมีขนาดต่างกัน ระบบจะจัดภาพแบบ contain บนพื้นหลังสีขาว
